@@ -1,0 +1,16 @@
+{
+  "name": "nvidia-ollama-bridge",
+  "version": "0.1.0",
+  "description": "Single-file proxy that exposes NVIDIA NIM models through Ollama-compatible and OpenAI-compatible local endpoints.",
+  "type": "module",
+  "main": "nvidia-bridge.mjs",
+  "scripts": {
+    "start": "node ./nvidia-bridge.mjs",
+    "chat": "node ./nvidia-bridge.mjs --chat",
+    "openclaw:setup": "bash ./scripts/openclaw-fast-setup.sh all",
+    "openclaw:check": "bash ./scripts/openclaw-fast-setup.sh check",
+    "test": "bash ./scripts/test-bridge.sh"
+  },
+  "keywords": ["nvidia", "nim", "ollama", "openai", "bridge", "gemma", "llm", "openclaw"],
+  "license": "MIT"
+}

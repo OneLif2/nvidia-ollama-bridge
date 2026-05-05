@@ -1,0 +1,7 @@
+{
+  "name": "nvidia-ollama-bridge",
+  "version": "0.1.0",
+  "description": "Operate a local single-file NVIDIA NIM bridge that exposes gemma-4-31b-it (and other NIM models) through Ollama-compatible and OpenAI-compatible local endpoints, optionally powering memory-lancedb-pro.",
+  "license": "MIT",
+  "keywords": ["nvidia", "nim", "ollama", "openai", "bridge", "gemma", "memory-lancedb-pro", "openclaw"]
+}

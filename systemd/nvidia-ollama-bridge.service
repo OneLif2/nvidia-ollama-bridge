@@ -1,0 +1,16 @@
+[Unit]
+Description=NVIDIA Ollama Bridge — NVIDIA NIM API proxy (Ollama + OpenAI compatible)
+After=network.target
+
+[Service]
+Type=simple
+Environment=NVIDIA_BRIDGE_HOST=127.0.0.1
+Environment=NVIDIA_BRIDGE_PORT=11545
+Environment=NVIDIA_MODEL=google/gemma-4-31b-it
+EnvironmentFile=-%h/.config/nvidia-ollama-bridge/env
+ExecStart=/usr/bin/env node %REPO_DIR%/nvidia-bridge.mjs
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
