@@ -2,88 +2,165 @@
 
 ## Overview
 
-A single-file local HTTP proxy that bridges NVIDIA NIM (free API) models into both
-OpenAI-compatible and Ollama-compatible local endpoints.  No OAuth — just an API key.
+Connect NVIDIA NIM's free hosted LLM API (`google/gemma-4-31b-it`) to both
+**Ollama** (for local terminal chat) and **OpenClaw** (for agent use),
+using a single-file Node.js bridge plus a Python interactive installer.
 
 ## Background
 
 NVIDIA opened its NIM inference microservices to the public at no cost:
-- 80+ production-grade models (DeepSeek, Gemma, Kimi, GLM, etc.)
+- 80+ production-grade models (Gemma, DeepSeek, Kimi, GLM, etc.)
 - Zero credit-card / trial restrictions
 - Rate limit: ~40 req/min (≈1 request per 1.5 s)
 - Research & prototype use only (not for commercial production)
 - 100% OpenAI-compatible — only the base URL and key need to change
 
-Target model for Phase 1: **google/gemma-4-31b-it**
+Target model: **google/gemma-4-31b-it**
 API endpoint: `https://integrate.api.nvidia.com/v1`
 
 ---
 
-## Phase 1 — Terminal Chat via Ollama
+## Phase 1 — Ollama connects to NVIDIA LLM
 
-**Goal:** Expose the NVIDIA NIM API as a local Ollama-compatible server so any
-user can `ollama run gemma4:latest` (or equivalent) and get a streaming chat
-session in the terminal.
+**Goal:** Expose the NVIDIA NIM API as a local Ollama-compatible HTTP server
+so any user can `ollama run gemma4:latest` and get a streaming chat session
+in the terminal. Also supports a built-in `--chat` mode with no Ollama required.
 
-Deliverables:
+**How it works:**
+```
+Terminal / Ollama CLI
+      │
+      ▼
+nvidia-bridge.mjs  (127.0.0.1:11545)
+      │  Ollama API (/api/chat, /api/generate)
+      │  OpenAI API (/v1/chat/completions)
+      ▼
+https://integrate.api.nvidia.com/v1
+      │  google/gemma-4-31b-it
+```
+
+**Deliverables:**
 - `nvidia-bridge.mjs` — single Node.js file, zero npm dependencies
 - Listens on `127.0.0.1:11545`
-- Accepts both Ollama (`/api/chat`, `/api/generate`) and OpenAI (`/v1/chat/completions`) requests
+- Accepts Ollama (`/api/chat`, `/api/generate`) and OpenAI (`/v1/chat/completions`) requests
 - Streams tokens back in the correct format for each client
-- Built-in `--chat` flag for direct terminal chat without needing Ollama installed
+- Built-in `--chat` flag for direct terminal chat without Ollama
 - Systemd user service unit for background operation
-- API key stored in env var `NVIDIA_API_KEY` (default provided for quick start)
+- API key from `NVIDIA_API_KEY` env var (never hardcoded)
+
+**Success criteria:**
+- `node nvidia-bridge.mjs --chat` opens a working streaming chat session
+- `OLLAMA_HOST=http://127.0.0.1:11545 ollama run gemma4:latest` works
 
 ---
 
-## Phase 2 — LLM Testing
+## Phase 2 — OpenClaw connects to NVIDIA LLM directly
 
-**Goal:** Validate model quality and bridge correctness.
+**Goal:** Add `google/gemma-4-31b-it` as a selectable and fallback model inside
+OpenClaw, calling NVIDIA's API directly (no bridge in the middle).
+**The default OpenClaw model is not changed.**
 
-Deliverables:
-- `scripts/test-bridge.sh` — automated test suite
-  - Health check (bridge responds)
-  - Streaming response (SSE tokens arrive)
-  - Non-streaming response (JSON complete)
-  - Ollama `/api/chat` endpoint
-  - Ollama `/api/generate` endpoint
-  - Multi-turn conversation (history preserved)
-  - Thinking mode (`enable_thinking: true`)
-- Pass/Warn/Fail colour-coded summary
+**How it works:**
+```
+OpenClaw agent
+      │
+      │  native NVIDIA plugin (models.providers.nvidia)
+      ▼
+https://integrate.api.nvidia.com/v1
+      │  google/gemma-4-31b-it
+```
+
+**Deliverables:**
+- `openclaw.json` changes:
+  - `models.providers.nvidia` — registers NVIDIA as a direct provider
+  - `agents.defaults.models["nvidia/google/gemma-4-31b-it"]` — makes it selectable
+  - `agents.defaults.model.fallbacks` — adds it as last-resort fallback
+  - Default primary model remains unchanged
+- `NVIDIA_API_KEY` env var loaded by OpenClaw automatically
+
+**Success criteria:**
+- `nvidia/google/gemma-4-31b-it` appears in OpenClaw's model picker
+- Selecting it works; default model is unchanged
+- When primary models fail, OpenClaw falls back to `nvidia/google/gemma-4-31b-it`
 
 ---
 
-## Phase 3 — OpenClaw Integration
+## Phase 3 — Skill: agent-readable setup guide
 
-**Goal:** Let the OpenClaw agent runtime use NVIDIA NIM as its LLM backend,
-including powering `memory-lancedb-pro` for long-term memory.
+**Goal:** Provide a machine-readable and human-readable skill document so that
+OpenClaw agents (or any other agent) can understand, install, and configure
+this integration without human help.
 
-Deliverables:
-- `scripts/openclaw-fast-setup.sh` — one-command wiring:
-  1. Install + enable systemd service
-  2. Patch `~/.openclaw/openclaw.json` to point LLM at the bridge
-  3. Configure `memory-lancedb-pro` plugin (LLM = bridge, embeddings = Ollama)
-  4. Restart OpenClaw
-- `skills/nvidia-ollama-bridge/` — OpenClaw skill definition
-  - `SKILL.md` — human-readable usage guide
-  - `skill.json` — machine-readable metadata
-  - `_meta.json` — version info
+**Deliverables:**
+- `skills/nvidia-ollama-bridge/SKILL.md` — step-by-step instructions:
+  - Prerequisites check (node, python3, ollama, openclaw)
+  - API key setup
+  - Installation choices (both / openclaw only / ollama only)
+  - Verification commands
+  - Troubleshooting guide
+- `skills/nvidia-ollama-bridge/skill.json` — machine-readable metadata
+- `skills/nvidia-ollama-bridge/_meta.json` — version info
+
+---
+
+## Phase 4 — Python interactive installer
+
+**Goal:** A single Python file (`gemma-4-31b-it.py`) named after the model
+that acts as a fully automated installer. Running it is the only thing a user
+needs to do.
+
+**Install flow:**
+
+```
+python3 gemma-4-31b-it.py
+      │
+      ├─ Step 1: Ask for NVIDIA_API_KEY
+      │
+      ├─ Step 2: Ask install target
+      │     1. Both OpenClaw + Ollama
+      │     2. OpenClaw only
+      │     3. Ollama only
+      │
+      ├─ Step 3: Generate gemma-4-31b-it.mjs
+      │     (model-specific bridge launcher, ready to run)
+      │
+      ├─ Step 4a [Ollama chosen]:
+      │     Write API key to ~/.config/nvidia-ollama-bridge/env
+      │     Start bridge  →  node gemma-4-31b-it.mjs
+      │
+      └─ Step 4b [OpenClaw chosen]:
+            Patch ~/.openclaw/openclaw.json
+            Run: openclaw onboard --auth-choice nvidia-api-key
+            Restart OpenClaw
+```
+
+**Deliverables:**
+- `gemma-4-31b-it.py` — interactive installer (no pip dependencies)
+- `gemma-4-31b-it.mjs` — generated by the installer, model-specific bridge launcher
+  (git-ignored, created at install time)
+
+**Success criteria:**
+- `python3 gemma-4-31b-it.py` completes without errors for all three install choices
+- After install, chosen integrations work (verified by the script itself)
 
 ---
 
 ## Non-Goals
 
-- No support for image / audio modalities in Phase 1
+- No support for image / audio modalities
 - No local GPU inference (that is Ollama's job)
 - No commercial deployment
+- Bridge default model is never changed without user consent
 
 ---
 
-## Success Criteria
+## Success Criteria Summary
 
 | Phase | Criteria |
 |-------|----------|
-| 1 | `node nvidia-bridge.mjs --chat` opens a working streaming chat session |
-| 1 | `ollama run gemma4:latest` works when bridge is running |
-| 2 | All automated tests pass or warn (no hard failures) |
-| 3 | OpenClaw uses NVIDIA LLM for every turn; memory-lancedb-pro recalls facts |
+| 1 | `node nvidia-bridge.mjs --chat` streams responses |
+| 1 | `OLLAMA_HOST=http://127.0.0.1:11545 ollama run gemma4:latest` works |
+| 2 | `nvidia/google/gemma-4-31b-it` selectable in OpenClaw; default unchanged |
+| 2 | OpenClaw falls back to NVIDIA when primary models fail |
+| 3 | Agent can read SKILL.md and complete setup unassisted |
+| 4 | `python3 gemma-4-31b-it.py` fully installs for chosen target |
