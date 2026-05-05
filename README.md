@@ -30,11 +30,33 @@ No npm install required — pure Node.js standard library.
 
 ---
 
+## Ways to call this model
+
+There are three ways to chat with Gemma-4. Choose based on what you need:
+
+| Method | Command | Speed | Features |
+|--------|---------|-------|----------|
+| **Direct `--chat`** | `node nvidia-bridge.mjs --chat` | Fastest | Raw chat only |
+| **Ollama CLI** | `OLLAMA_HOST=http://127.0.0.1:11545 ollama run gemma4:latest` | Fast | Ollama UX |
+| **OpenClaw** | Select `ollama/gemma4:latest` in model picker | Slower | Memory, tools, multi-channel |
+
+> **Which is faster?**
+> Direct `--chat` is the fastest — it goes straight to NVIDIA's API with no extra hops.
+> OpenClaw adds ~100–500 ms of pre-processing (memory recall, context injection, thinking setup)
+> before the first token arrives. The real bottleneck is always NVIDIA's API latency (~500 ms),
+> so for casual chat the difference is small. Use `--chat` when you want speed;
+> use OpenClaw when you want memory and tools.
+
+---
+
 ## Phase 1 — Terminal Chat
 
-### Option A: Built-in chat mode (no Ollama needed)
+### Option A: Built-in `--chat` mode (fastest, no Ollama needed)
+
+The quickest way to talk to the model — no server, no extra tools:
 
 ```bash
+export NVIDIA_API_KEY=nvapi-your-key-here
 node nvidia-bridge.mjs --chat
 ```
 
@@ -46,6 +68,9 @@ You: What is 2+2?
 Assistant: 2 + 2 = 4 ...
 ```
 
+Type `exit` or press `Ctrl-C` to quit. Conversation history is kept for the
+whole session, so follow-up questions work naturally.
+
 ### Option B: Via Ollama CLI
 
 Ollama defaults to its own port `11434`. Set `OLLAMA_HOST` to redirect it to
@@ -54,6 +79,7 @@ the bridge on port `11545` instead:
 **Step 1 — Start the bridge** (leave this terminal open)
 
 ```bash
+export NVIDIA_API_KEY=nvapi-your-key-here
 node nvidia-bridge.mjs
 ```
 
@@ -200,7 +226,7 @@ for await (const chunk of stream) {
 
 | Env var | Default | Description |
 |---------|---------|-------------|
-| `NVIDIA_API_KEY` | (bundled key) | NVIDIA NIM bearer token |
+| `NVIDIA_API_KEY` | **(required)** | NVIDIA NIM bearer token — get free key at [build.nvidia.com](https://build.nvidia.com) |
 | `NVIDIA_BRIDGE_HOST` | `127.0.0.1` | Listen address |
 | `NVIDIA_BRIDGE_PORT` | `11545` | Listen port |
 | `NVIDIA_MODEL` | `google/gemma-4-31b-it` | Default model |
