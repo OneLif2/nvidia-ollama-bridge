@@ -48,15 +48,25 @@ Assistant: 2 + 2 = 4 ...
 
 ### Option B: Via Ollama CLI
 
-Start the bridge, then point Ollama at it:
+Ollama defaults to its own port `11434`. Set `OLLAMA_HOST` to redirect it to
+the bridge on port `11545` instead:
+
+**Step 1 — Start the bridge** (leave this terminal open)
 
 ```bash
-# Terminal 1
 node nvidia-bridge.mjs
+```
 
-# Terminal 2
+**Step 2 — In a new terminal, run Ollama pointed at the bridge**
+
+```bash
 OLLAMA_HOST=http://127.0.0.1:11545 ollama run gemma4:latest
 ```
+
+You'll get a normal Ollama chat prompt, but all inference goes through NVIDIA NIM.
+
+> **Why `OLLAMA_HOST`?** Without it, Ollama looks for a local model on its own
+> server (port `11434`) and ignores the bridge entirely.
 
 ### Option C: Start as a background service
 
