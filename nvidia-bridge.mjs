@@ -24,9 +24,13 @@ import readline from "readline";
 
 // ─── Configuration ─────────────────────────────────────────────────────────
 
-const API_KEY =
-  process.env.NVIDIA_API_KEY ||
-  "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";
+const API_KEY = process.env.NVIDIA_API_KEY;
+if (!API_KEY) {
+  console.error("Error: NVIDIA_API_KEY environment variable is not set.");
+  console.error("Get a free key at https://build.nvidia.com then run:");
+  console.error("  export NVIDIA_API_KEY=nvapi-...");
+  process.exit(1);
+}
 
 const BASE_URL =
   process.env.NVIDIA_BASE_URL || "https://integrate.api.nvidia.com/v1";
