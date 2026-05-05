@@ -51,7 +51,7 @@ https://integrate.api.nvidia.com/v1
 **Success criteria:**
 - `node nvidia-bridge.mjs --chat` opens a working streaming chat session
 - `OLLAMA_HOST=http://127.0.0.1:11545 ollama run gemma4:latest` works
-
+- user can select gemma4 or other nvidia model from openclaw model list
 ---
 
 ## Phase 2 — OpenClaw connects to NVIDIA LLM directly

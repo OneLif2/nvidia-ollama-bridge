@@ -1,6 +1,6 @@
 ---
 name: nvidia-ollama-bridge
-version: 0.2.0
+version: 0.2.1
 description: Install and configure NVIDIA NIM (google/gemma-4-31b-it) for Ollama and/or OpenClaw
 requires:
   bins: ["node", "python3"]
@@ -11,7 +11,8 @@ emoji: "🚀"
 # nvidia-ollama-bridge
 
 Connect NVIDIA NIM's free LLM API (`google/gemma-4-31b-it`) to Ollama and/or
-OpenClaw. NVIDIA's API is 100% OpenAI-compatible — no local GPU needed.
+OpenClaw. NVIDIA's API is OpenAI-compatible, so no local GPU is needed for the
+cloud path.
 
 ---
 
@@ -66,6 +67,7 @@ export NVIDIA_API_KEY=nvapi-your-key-here
 # Persist across reboots
 mkdir -p ~/.config/nvidia-ollama-bridge
 echo "NVIDIA_API_KEY=nvapi-your-key-here" > ~/.config/nvidia-ollama-bridge/env
+chmod 600 ~/.config/nvidia-ollama-bridge/env
 ```
 
 ### Step 2 — Start the bridge
@@ -119,8 +121,12 @@ OpenClaw calls NVIDIA's API directly.
 
 ```bash
 export NVIDIA_API_KEY=nvapi-your-key-here
-# Add to ~/.bashrc for persistence:
-echo 'export NVIDIA_API_KEY=nvapi-your-key-here' >> ~/.bashrc
+
+# Persist without duplicating the secret into ~/.bashrc
+mkdir -p ~/.config/nvidia-ollama-bridge
+echo "NVIDIA_API_KEY=nvapi-your-key-here" > ~/.config/nvidia-ollama-bridge/env
+chmod 600 ~/.config/nvidia-ollama-bridge/env
+echo '[ -f "$HOME/.config/nvidia-ollama-bridge/env" ] && . "$HOME/.config/nvidia-ollama-bridge/env"' >> ~/.bashrc
 ```
 
 ### Step 2 — Run OpenClaw onboarding
@@ -129,7 +135,9 @@ echo 'export NVIDIA_API_KEY=nvapi-your-key-here' >> ~/.bashrc
 openclaw onboard --auth-choice nvidia-api-key
 ```
 
-This registers the NVIDIA provider inside OpenClaw automatically.
+This stores NVIDIA auth inside OpenClaw. For `google/gemma-4-31b-it`, still add
+the explicit custom model entry below because it may not exist in OpenClaw's
+built-in NVIDIA catalog.
 
 ### Step 3 — Register the model and add as fallback
 
@@ -146,6 +154,7 @@ ask an agent to patch it:
         "models": [
           {
             "id": "google/gemma-4-31b-it",
+            "name": "Google Gemma 4 31B Instruct",
             "contextWindow": 131072,
             "maxTokens": 16384
           }
@@ -169,10 +178,24 @@ ask an agent to patch it:
 > ⚠️ Do NOT change `agents.defaults.model.primary` — the default model must
 > stay unchanged. Only add to the `fallbacks` array.
 
+Important: OpenClaw requires custom provider models to include `name`. Without
+it, `openclaw config validate` fails with
+`models.providers.nvidia.models.0.name: Invalid input: expected string`.
+
+Validate before restarting:
+
+```bash
+openclaw config validate
+openclaw models list | grep 'nvidia/google/gemma-4-31b-it'
+```
+
 ### Step 4 — Restart OpenClaw
 
 ```bash
-# If running as systemd service:
+# If running as OpenClaw gateway systemd service:
+systemctl --user restart openclaw-gateway
+
+# Older service name fallback:
 systemctl --user restart openclaw
 
 # If running manually, kill and restart:
@@ -190,6 +213,16 @@ What is 2+2?
 ```
 
 Expected: a streaming response from gemma-4-31b-it.
+
+CLI smoke test:
+
+```bash
+openclaw agent --agent main --model nvidia/google/gemma-4-31b-it \
+  --message 'Reply with exactly: OK' --timeout 120 --json
+```
+
+Expected metadata includes `"provider": "nvidia"` and
+`"model": "google/gemma-4-31b-it"`.
 
 ---
 
@@ -212,8 +245,8 @@ bash scripts/openclaw-fast-setup.sh all
 # Ollama bridge only
 bash scripts/openclaw-fast-setup.sh install
 
-# OpenClaw config only
-bash scripts/openclaw-fast-setup.sh configure-openclaw
+# OpenClaw config only, direct NVIDIA provider
+bash scripts/setup-openclaw.sh
 
 # Verify everything
 bash scripts/openclaw-fast-setup.sh check
@@ -239,7 +272,8 @@ wget -qO- --post-data='{"model":"gemma4:latest","messages":[{"role":"user","cont
 bash scripts/test-bridge.sh
 
 # 5. OpenClaw model check
-openclaw models list --provider nvidia
+openclaw config validate
+openclaw models list | grep 'nvidia/google/gemma-4-31b-it'
 ```
 
 ---
@@ -279,5 +313,34 @@ Without it, Ollama uses its own server on port 11434.
 OpenClaw after editing `openclaw.json`. Check JSON is valid first:
 `node -e "JSON.parse(require('fs').readFileSync(process.env.HOME+'/.openclaw/openclaw.json','utf8'))"`
 
+**`Unknown model: nvidia/google/gemma-4-31b-it`** — The model ref was added to
+the picker/fallbacks, but `models.providers.nvidia` is missing or the custom
+model entry is incomplete. Run:
+
+```bash
+bash scripts/setup-openclaw.sh
+openclaw config validate
+openclaw models list | grep 'nvidia/google/gemma-4-31b-it'
+```
+
+The provider config must include:
+
+```json
+{
+  "id": "google/gemma-4-31b-it",
+  "name": "Google Gemma 4 31B Instruct",
+  "contextWindow": 131072,
+  "maxTokens": 16384
+}
+```
+
 **OpenClaw 401 to NVIDIA** — Run `openclaw onboard --auth-choice nvidia-api-key`
 with `NVIDIA_API_KEY` set in the environment.
+
+**Gateway restarted but model still looks old** — Confirm the active gateway is
+using the same config file:
+
+```bash
+openclaw gateway status
+openclaw logs --follow
+```

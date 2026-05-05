@@ -20,9 +20,29 @@
 
 import http from "http";
 import https from "https";
+import fs from "fs";
+import os from "os";
+import path from "path";
 import readline from "readline";
 
 // ─── Configuration ─────────────────────────────────────────────────────────
+
+function loadEnvFile(filePath) {
+  if (!fs.existsSync(filePath)) return;
+  const content = fs.readFileSync(filePath, "utf8");
+  for (const line of content.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const match = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+    if (!match) continue;
+    const [, key, rawValue] = match;
+    if (process.env[key] !== undefined) continue;
+    process.env[key] = rawValue.replace(/^(['"])(.*)\1$/, "$2");
+  }
+}
+
+loadEnvFile(path.join(process.cwd(), ".env"));
+loadEnvFile(path.join(os.homedir(), ".config", "nvidia-ollama-bridge", "env"));
 
 const API_KEY = process.env.NVIDIA_API_KEY;
 if (!API_KEY) {

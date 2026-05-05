@@ -1,7 +1,7 @@
 # nvidia-ollama-bridge
 
-Single-file Node.js proxy that exposes **NVIDIA NIM** models through both
-**Ollama-compatible** and **OpenAI-compatible** local HTTP endpoints.
+Connect NVIDIA NIM's free LLM API (`google/gemma-4-31b-it`) to **Ollama** and/or
+**OpenClaw** with a single setup command.
 
 No npm install required — pure Node.js standard library.
 
@@ -30,30 +30,84 @@ No npm install required — pure Node.js standard library.
 
 ---
 
-## Ways to call this model
+## Getting Started
 
-There are three ways to chat with Gemma-4. Choose based on what you need:
+### Step 1 — Get a free NVIDIA API key
+
+Go to **https://build.nvidia.com/settings/api-keys** and create an API key.
+No credit card. No trial period.
+
+NVIDIA will show you sample code that looks like this:
+
+```python
+headers = {
+  "Authorization": "Bearer nvapi-xxxxxxxxxxxxxxxxxxxx",
+  ...
+}
+```
+
+### Step 2 — Create `gemma-4-31b-it.py`
+
+Copy the template and replace the placeholder with your real key:
+
+```bash
+cp gemma-4-31b-it.template.py gemma-4-31b-it.py
+# edit gemma-4-31b-it.py — replace nvapi-YOUR-KEY-HERE with your real key
+```
+
+> `gemma-4-31b-it.py` is **git-ignored** — your API key never leaves your machine.
+
+The setup script and any OpenClaw agent will automatically extract the key from
+this file. You do not need to set any environment variables manually.
+
+### Step 3 — Run setup
+
+Choose what you want to install:
+
+```bash
+# Both OpenClaw + Ollama (recommended)
+bash scripts/openclaw-fast-setup.sh all
+
+# OpenClaw only  (direct NVIDIA API, fastest)
+bash scripts/openclaw-fast-setup.sh configure-openclaw
+
+# Ollama only  (starts bridge on port 11545)
+bash scripts/openclaw-fast-setup.sh install
+```
+
+The script reads your API key from `gemma-4-31b-it.py` automatically — no extra steps.
+
+**Or ask an OpenClaw agent:**
+> "Set up nvidia-ollama-bridge. My API key is in `gemma-4-31b-it.py`."
+
+The agent will read the file, extract the key, and configure everything.
+
+### Step 4 — Verify
+
+```bash
+bash scripts/openclaw-fast-setup.sh check
+```
+
+---
+
+## Ways to call this model
 
 | Method | Command | Speed | Features |
 |--------|---------|-------|----------|
-| **Direct `--chat`** | `node nvidia-bridge.mjs --chat` | Fastest | Raw chat only |
+| **Direct `--chat`** | `node nvidia-bridge.mjs --chat` | Fastest | Raw terminal chat |
 | **Ollama CLI** | `OLLAMA_HOST=http://127.0.0.1:11545 ollama run gemma4:latest` | Fast | Ollama UX |
-| **OpenClaw** | Select `ollama/gemma4:latest` in model picker | Slower | Memory, tools, multi-channel |
+| **OpenClaw** | Select `nvidia/google/gemma-4-31b-it` in model picker | Full | Memory, tools, channels |
 
-> **Which is faster?**
-> Direct `--chat` is the fastest — it goes straight to NVIDIA's API with no extra hops.
-> OpenClaw adds ~100–500 ms of pre-processing (memory recall, context injection, thinking setup)
-> before the first token arrives. The real bottleneck is always NVIDIA's API latency (~500 ms),
-> so for casual chat the difference is small. Use `--chat` when you want speed;
-> use OpenClaw when you want memory and tools.
+> **Which is faster?** Direct `--chat` skips all middleware — one hop to NVIDIA.
+> OpenClaw adds ~100–500 ms of pre-processing (memory recall, context injection).
+> The real bottleneck is NVIDIA's API (~500 ms to first token), so the difference
+> is small in practice. Use `--chat` for speed; use OpenClaw for smart features.
 
 ---
 
 ## Phase 1 — Terminal Chat
 
 ### Option A: Built-in `--chat` mode (fastest, no Ollama needed)
-
-The quickest way to talk to the model — no server, no extra tools:
 
 ```bash
 export NVIDIA_API_KEY=nvapi-your-key-here
@@ -67,9 +121,6 @@ Type your message and press Enter. Type "exit" or Ctrl-C to quit.
 You: What is 2+2?
 Assistant: 2 + 2 = 4 ...
 ```
-
-Type `exit` or press `Ctrl-C` to quit. Conversation history is kept for the
-whole session, so follow-up questions work naturally.
 
 ### Option B: Via Ollama CLI
 
@@ -89,21 +140,15 @@ node nvidia-bridge.mjs
 OLLAMA_HOST=http://127.0.0.1:11545 ollama run gemma4:latest
 ```
 
-You'll get a normal Ollama chat prompt, but all inference goes through NVIDIA NIM.
+> **Why `OLLAMA_HOST`?** Without it, Ollama uses its own server on port `11434`
+> and ignores the bridge entirely.
 
-> **Why `OLLAMA_HOST`?** Without it, Ollama looks for a local model on its own
-> server (port `11434`) and ignores the bridge entirely.
-
-### Option C: Start as a background service
+### Option C: Background service
 
 ```bash
-# Install systemd service
 bash scripts/openclaw-fast-setup.sh install
 
-# Check status
 systemctl --user status nvidia-ollama-bridge
-
-# View logs
 journalctl --user -u nvidia-ollama-bridge -f
 ```
 
@@ -112,38 +157,26 @@ journalctl --user -u nvidia-ollama-bridge -f
 ## Phase 2 — Testing
 
 ```bash
-# Bridge must be running first
 bash scripts/test-bridge.sh
-# or
-npm test
 ```
 
-Tests cover:
-- Health endpoint
-- Ollama model list (`/api/tags`)
-- OpenAI model list (`/v1/models`)
-- OpenAI streaming chat
-- OpenAI non-streaming chat
-- Ollama `/api/chat`
-- Ollama `/api/generate`
-- Multi-turn conversation (memory)
+Tests cover: health, model list, streaming, non-streaming, Ollama chat,
+Ollama generate, multi-turn conversation.
 
 ---
 
 ## Phase 3 — OpenClaw Integration
 
-One command wires everything up:
-
 ```bash
-npm run openclaw:setup
-# or
-bash scripts/openclaw-fast-setup.sh all
+bash scripts/openclaw-fast-setup.sh configure-openclaw
 ```
 
 This will:
-1. Install + enable the systemd user service
-2. Configure `memory-lancedb-pro` to use the bridge as its LLM backend
-3. Restart OpenClaw
+1. Read your API key from `gemma-4-31b-it.py`
+2. Register `nvidia/google/gemma-4-31b-it` as a selectable model in OpenClaw
+3. Add it to the fallback chain (default model is **not** changed)
+4. Run `openclaw onboard --auth-choice nvidia-api-key`
+5. Restart OpenClaw
 
 ---
 
@@ -172,7 +205,7 @@ from openai import OpenAI
 
 client = OpenAI(
     base_url="http://127.0.0.1:11545/v1",
-    api_key="nvidia-bridge",  # value doesn't matter
+    api_key="nvidia-bridge",  # value doesn't matter for local bridge
 )
 
 stream = client.chat.completions.create(
@@ -184,39 +217,17 @@ for chunk in stream:
     print(chunk.choices[0].delta.content or "", end="", flush=True)
 ```
 
-### JavaScript (OpenAI SDK)
-
-```js
-import OpenAI from "openai";
-
-const client = new OpenAI({
-  baseURL: "http://127.0.0.1:11545/v1",
-  apiKey: "nvidia-bridge",
-});
-
-const stream = await client.chat.completions.create({
-  model: "gemma4:latest",
-  messages: [{ role: "user", content: "Hello!" }],
-  stream: true,
-});
-
-for await (const chunk of stream) {
-  process.stdout.write(chunk.choices[0]?.delta?.content ?? "");
-}
-```
-
 ---
 
 ## HTTP endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/` | Health check — returns `{"status":"ok"}` |
+| GET | `/` | Health check |
 | GET | `/version` | Bridge version |
 | GET | `/v1/models` | OpenAI-format model list |
-| POST | `/v1/chat/completions` | OpenAI chat completions |
+| POST | `/v1/chat/completions` | OpenAI chat |
 | GET | `/api/tags` | Ollama-format model list |
-| GET | `/api/ps` | Ollama running models |
 | POST | `/api/chat` | Ollama chat (NDJSON stream) |
 | POST | `/api/generate` | Ollama generate |
 
@@ -226,32 +237,15 @@ for await (const chunk of stream) {
 
 | Env var | Default | Description |
 |---------|---------|-------------|
-| `NVIDIA_API_KEY` | **(required)** | NVIDIA NIM bearer token — get free key at [build.nvidia.com](https://build.nvidia.com) |
+| `NVIDIA_API_KEY` | **(required)** | Free key from [build.nvidia.com](https://build.nvidia.com) |
 | `NVIDIA_BRIDGE_HOST` | `127.0.0.1` | Listen address |
 | `NVIDIA_BRIDGE_PORT` | `11545` | Listen port |
 | `NVIDIA_MODEL` | `google/gemma-4-31b-it` | Default model |
 | `NVIDIA_BASE_URL` | `https://integrate.api.nvidia.com/v1` | NIM API base |
 | `NVIDIA_THINKING` | `0` | Set `1` for chain-of-thought mode |
 
-Persistent overrides: `~/.config/nvidia-ollama-bridge/env` (auto-loaded by systemd).
-
----
-
-## Supported model aliases
-
-All of these resolve to `google/gemma-4-31b-it`:
-
-- `gemma4:latest`
-- `gemma4`
-- `gemma-4-31b-it`
-- `google/gemma-4-31b-it`
-- `nvidia/gemma-4-31b-it`
-
-To use a different NVIDIA NIM model, pass its full name directly:
-
-```bash
-NVIDIA_MODEL=deepseek-ai/deepseek-r1 node nvidia-bridge.mjs
-```
+The setup script also reads the key from `gemma-4-31b-it.py` automatically —
+no need to export it manually if the file exists.
 
 ---
 
@@ -259,19 +253,21 @@ NVIDIA_MODEL=deepseek-ai/deepseek-r1 node nvidia-bridge.mjs
 
 ```
 nvidia-ollama-bridge/
-├── goal.md                                ← Project goals & phases
-├── README.md                              ← This file
+├── goal.md
+├── README.md
 ├── package.json
 ├── nvidia-bridge.mjs                      ← Single-file bridge (zero deps)
+├── gemma-4-31b-it.template.py             ← Template: copy → gemma-4-31b-it.py
+├── gemma-4-31b-it.py                      ← YOUR file (git-ignored, has your key)
 ├── .gitignore
 ├── systemd/
-│   └── nvidia-ollama-bridge.service       ← systemd user service
+│   └── nvidia-ollama-bridge.service
 ├── scripts/
-│   ├── test-bridge.sh                     ← Phase 2 automated tests
-│   └── openclaw-fast-setup.sh             ← Phase 3 OpenClaw wiring
+│   ├── test-bridge.sh
+│   └── openclaw-fast-setup.sh             ← Reads key from gemma-4-31b-it.py
 └── skills/
     └── nvidia-ollama-bridge/
-        ├── SKILL.md                       ← OpenClaw skill doc
+        ├── SKILL.md
         ├── skill.json
         └── _meta.json
 ```
@@ -280,12 +276,13 @@ nvidia-ollama-bridge/
 
 ## Troubleshooting
 
-**429 Too Many Requests** — NVIDIA NIM rate-limits to ~40 req/min. Wait 90 s.
+**No API key found** — Create `gemma-4-31b-it.py` from the template and add your key.
 
-**401 Unauthorized** — Regenerate your API key at <https://build.nvidia.com> and
-set `NVIDIA_API_KEY`.
+**429 Too Many Requests** — NVIDIA NIM limits ~40 req/min. Wait 90 s and retry.
+
+**401 Unauthorized** — Key is invalid. Regenerate at <https://build.nvidia.com>.
 
 **Ollama CLI not connecting** — Always set `OLLAMA_HOST=http://127.0.0.1:11545`
 before running `ollama run`.
 
-**Bridge port in use** — Change with `NVIDIA_BRIDGE_PORT=11546 node nvidia-bridge.mjs`.
+**Bridge port in use** — `NVIDIA_BRIDGE_PORT=11546 node nvidia-bridge.mjs`

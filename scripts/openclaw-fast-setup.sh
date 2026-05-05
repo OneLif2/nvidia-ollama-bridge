@@ -1,17 +1,20 @@
 #!/usr/bin/env bash
-# openclaw-fast-setup.sh — Phase 3 OpenClaw integration for nvidia-ollama-bridge
+# openclaw-fast-setup.sh — Setup NVIDIA NIM bridge for OpenClaw and/or Ollama
 #
 # Usage:
-#   bash openclaw-fast-setup.sh all               # full setup
-#   bash openclaw-fast-setup.sh install           # systemd service only
-#   bash openclaw-fast-setup.sh configure-memory  # memory-lancedb-pro wiring
-#   bash openclaw-fast-setup.sh check             # health checks
+#   bash openclaw-fast-setup.sh all                # Ollama bridge + OpenClaw
+#   bash openclaw-fast-setup.sh install            # Ollama bridge (systemd service)
+#   bash openclaw-fast-setup.sh configure-openclaw # OpenClaw direct NVIDIA config
+#   bash openclaw-fast-setup.sh configure-memory   # memory-lancedb-pro wiring
+#   bash openclaw-fast-setup.sh restart-openclaw   # restart OpenClaw only
+#   bash openclaw-fast-setup.sh check              # health checks
 
 set -euo pipefail
 
 BRIDGE_HOST="${NVIDIA_BRIDGE_HOST:-127.0.0.1}"
 BRIDGE_PORT="${NVIDIA_BRIDGE_PORT:-11545}"
 BRIDGE_MODEL="${NVIDIA_MODEL:-google/gemma-4-31b-it}"
+NIM_BASE_URL="https://integrate.api.nvidia.com/v1"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 OPENCLAW_JSON="${OPENCLAW_CONFIG:-$HOME/.openclaw/openclaw.json}"
@@ -24,8 +27,40 @@ warn() { echo -e "${yellow}⚠${reset} $*"; }
 fail() { echo -e "${red}✗${reset} $*"; }
 info() { echo -e "  $*"; }
 
-# ── install ──────────────────────────────────────────────────────────────────
+# ── Resolve NVIDIA API key ────────────────────────────────────────────────────
+# Reads from gemma-4-31b-it.py first, then falls back to env var.
+resolve_api_key() {
+  local py_file="$REPO_DIR/gemma-4-31b-it.py"
+  local key=""
+
+  if [ -f "$py_file" ]; then
+    # Extract first nvapi-... value from the file
+    key=$(grep -o 'nvapi-[A-Za-z0-9_-]*' "$py_file" | head -1)
+    if [ -n "$key" ] && [ "$key" != "nvapi-YOUR-KEY-HERE" ]; then
+      echo "$key"
+      return 0
+    fi
+  fi
+
+  # Fall back to environment variable
+  if [ -n "${NVIDIA_API_KEY:-}" ]; then
+    echo "$NVIDIA_API_KEY"
+    return 0
+  fi
+
+  fail "No NVIDIA API key found."
+  info "Create gemma-4-31b-it.py with your key (see gemma-4-31b-it.template.py)"
+  info "Or set:  export NVIDIA_API_KEY=nvapi-..."
+  return 1
+}
+
+# ── install (Ollama bridge via systemd) ──────────────────────────────────────
 cmd_install() {
+  local api_key
+  api_key=$(resolve_api_key)
+  export NVIDIA_API_KEY="$api_key"
+  ok "API key loaded"
+
   echo "Installing systemd user service…"
   local svc_src="$REPO_DIR/systemd/nvidia-ollama-bridge.service"
   local svc_dir="$HOME/.config/systemd/user"
@@ -34,14 +69,25 @@ cmd_install() {
   mkdir -p "$svc_dir"
   sed "s|%REPO_DIR%|$REPO_DIR|g" "$svc_src" > "$svc_dst"
 
+  # Write API key to env file so systemd service picks it up
+  local env_dir="$HOME/.config/nvidia-ollama-bridge"
+  mkdir -p "$env_dir"
+  echo "NVIDIA_API_KEY=$api_key" > "$env_dir/env"
+  ok "API key saved to $env_dir/env"
+
   systemctl --user daemon-reload
   systemctl --user enable --now nvidia-ollama-bridge.service
   ok "Service enabled and started"
   info "Status: systemctl --user status nvidia-ollama-bridge"
+  info "Ollama: OLLAMA_HOST=http://127.0.0.1:${BRIDGE_PORT} ollama run gemma4:latest"
 }
 
-# ── configure-memory ─────────────────────────────────────────────────────────
-cmd_configure_memory() {
+# ── configure-openclaw (direct NVIDIA API — no bridge needed) ─────────────────
+cmd_configure_openclaw() {
+  local api_key
+  api_key=$(resolve_api_key)
+  ok "API key loaded"
+
   if [ ! -f "$OPENCLAW_JSON" ]; then
     fail "openclaw.json not found at $OPENCLAW_JSON"
     info "Set OPENCLAW_CONFIG env var if it's elsewhere."
@@ -50,7 +96,83 @@ cmd_configure_memory() {
 
   local backup="${OPENCLAW_JSON}.bak.$(date +%Y%m%d%H%M%S)"
   cp "$OPENCLAW_JSON" "$backup"
-  ok "Backed up openclaw.json → $backup"
+  ok "Backed up openclaw.json → $(basename "$backup")"
+
+  node --input-type=module <<EOF
+import { readFileSync, writeFileSync } from 'fs';
+
+const path   = '${OPENCLAW_JSON}';
+const nimUrl = '${NIM_BASE_URL}';
+const model  = '${BRIDGE_MODEL}';
+const ref    = 'nvidia/' + model;
+
+const cfg = JSON.parse(readFileSync(path, 'utf8'));
+
+// Register NVIDIA as a direct provider
+cfg.models ??= {};
+cfg.models.providers ??= {};
+cfg.models.providers.nvidia = {
+  baseUrl: nimUrl,
+  api: 'openai-completions',
+  models: [{ id: model, contextWindow: 131072, maxTokens: 16384 }],
+};
+
+// Add to models allowlist
+cfg.agents ??= {};
+cfg.agents.defaults ??= {};
+cfg.agents.defaults.models ??= {};
+cfg.agents.defaults.models[ref] = {};
+
+// Add to defaults fallbacks (never touch primary)
+cfg.agents.defaults.model ??= {};
+cfg.agents.defaults.model.fallbacks ??= [];
+if (!cfg.agents.defaults.model.fallbacks.includes(ref)) {
+  cfg.agents.defaults.model.fallbacks.push(ref);
+}
+
+// Add to main agent fallbacks
+for (const agent of (cfg.agents?.list ?? [])) {
+  if (agent.id === 'main') {
+    agent.model ??= {};
+    agent.model.fallbacks ??= [];
+    if (!agent.model.fallbacks.includes(ref)) {
+      agent.model.fallbacks.push(ref);
+    }
+  }
+}
+
+writeFileSync(path, JSON.stringify(cfg, null, 2));
+console.log('openclaw.json updated — model: ' + ref);
+EOF
+
+  ok "openclaw.json configured"
+  info "Model ref: nvidia/${BRIDGE_MODEL}"
+  info "Default model is unchanged"
+
+  # Run openclaw onboard if available
+  if command -v openclaw &>/dev/null; then
+    info "Running openclaw onboard for NVIDIA…"
+    NVIDIA_API_KEY="$api_key" openclaw onboard --auth-choice nvidia-api-key && \
+      ok "openclaw onboard completed" || \
+      warn "openclaw onboard returned an error (config still applied)"
+  else
+    warn "openclaw CLI not in PATH — run manually:"
+    info "  NVIDIA_API_KEY=$api_key openclaw onboard --auth-choice nvidia-api-key"
+  fi
+
+  cmd_restart_openclaw
+}
+
+# ── configure-memory (memory-lancedb-pro → bridge LLM) ───────────────────────
+cmd_configure_memory() {
+  if [ ! -f "$OPENCLAW_JSON" ]; then
+    fail "openclaw.json not found at $OPENCLAW_JSON"
+    return 1
+  fi
+
+  local backup="${OPENCLAW_JSON}.bak.$(date +%Y%m%d%H%M%S)"
+  cp "$OPENCLAW_JSON" "$backup"
+  ok "Backed up openclaw.json → $(basename "$backup")"
 
   node --input-type=module <<EOF
 import { readFileSync, writeFileSync } from 'fs';
@@ -96,6 +218,7 @@ cmd_restart_openclaw() {
     ok "OpenClaw restarted"
   else
     warn "OpenClaw service not running — skipping restart"
+    info "Start OpenClaw and the model will be available"
   fi
 }
 
@@ -107,7 +230,14 @@ cmd_check() {
   echo "Checking nvidia-ollama-bridge setup…"
   echo
 
-  # Service
+  # API key
+  if resolve_api_key &>/dev/null; then
+    ok "API key: found"; ((PASS++))
+  else
+    fail "API key: not found — create gemma-4-31b-it.py from template"; ((FAIL++))
+  fi
+
+  # Ollama bridge service
   if systemctl --user is-active --quiet nvidia-ollama-bridge 2>/dev/null; then
     ok "systemd service: active"; ((PASS++))
   else
@@ -115,32 +245,35 @@ cmd_check() {
   fi
 
   # Bridge HTTP
-  if curl -sf "$BASE/" &>/dev/null; then
+  if wget -qO- "$BASE/" &>/dev/null 2>&1; then
     ok "bridge HTTP: reachable at $BASE"; ((PASS++))
   else
-    fail "bridge HTTP: not reachable at $BASE"; ((FAIL++))
+    warn "bridge HTTP: not reachable at $BASE"; ((WARN++))
     info "Start with: node $REPO_DIR/nvidia-bridge.mjs"
   fi
 
   # Ollama embeddings
-  if curl -sf "${OLLAMA_BASE}/api/tags" &>/dev/null; then
-    if curl -sf "${OLLAMA_BASE}/api/tags" | grep -q "$EMBED_MODEL" 2>/dev/null; then
+  if wget -qO- "${OLLAMA_BASE}/api/tags" &>/dev/null 2>&1; then
+    if wget -qO- "${OLLAMA_BASE}/api/tags" 2>/dev/null | grep -q "$EMBED_MODEL"; then
       ok "Ollama embed model: $EMBED_MODEL found"; ((PASS++))
     else
       warn "Ollama running but $EMBED_MODEL not found — run: ollama pull $EMBED_MODEL"; ((WARN++))
     fi
   else
-    warn "Ollama not reachable at $OLLAMA_BASE (embeddings unavailable)"; ((WARN++))
+    warn "Ollama not reachable at $OLLAMA_BASE"; ((WARN++))
   fi
 
-  # openclaw.json
+  # openclaw.json — nvidia provider
   if [ -f "$OPENCLAW_JSON" ]; then
-    if node -e "const c=require('$OPENCLAW_JSON');process.exit(c?.plugins?.entries?.['memory-lancedb-pro']?.enabled ? 0 : 1)" 2>/dev/null || \
-       node --input-type=module -e "import c from '${OPENCLAW_JSON}' assert {type:'json'};process.exit(c?.plugins?.entries?.['memory-lancedb-pro']?.enabled ? 0:1)" 2>/dev/null; then
-      ok "openclaw.json: memory-lancedb-pro enabled"; ((PASS++))
+    if node --input-type=module -e "
+import { readFileSync } from 'fs';
+const c = JSON.parse(readFileSync('${OPENCLAW_JSON}', 'utf8'));
+process.exit(c?.models?.providers?.nvidia ? 0 : 1);
+" 2>/dev/null; then
+      ok "openclaw.json: nvidia provider configured"; ((PASS++))
     else
-      warn "openclaw.json exists but memory-lancedb-pro not configured"; ((WARN++))
-      info "Run: bash $0 configure-memory"
+      warn "openclaw.json: nvidia provider not configured"; ((WARN++))
+      info "Run: bash $0 configure-openclaw"
     fi
   else
     warn "openclaw.json not found at $OPENCLAW_JSON"; ((WARN++))
@@ -156,20 +289,21 @@ cmd_check() {
 # ── all ───────────────────────────────────────────────────────────────────────
 cmd_all() {
   cmd_install
-  cmd_configure_memory
+  cmd_configure_openclaw
   cmd_restart_openclaw
   cmd_check
 }
 
 # ── dispatch ──────────────────────────────────────────────────────────────────
 case "${1:-all}" in
-  all)               cmd_all ;;
-  install)           cmd_install ;;
-  configure-memory)  cmd_configure_memory ;;
-  restart-openclaw)  cmd_restart_openclaw ;;
-  check)             cmd_check ;;
+  all)                cmd_all ;;
+  install)            cmd_install ;;
+  configure-openclaw) cmd_configure_openclaw ;;
+  configure-memory)   cmd_configure_memory ;;
+  restart-openclaw)   cmd_restart_openclaw ;;
+  check)              cmd_check ;;
   *)
-    echo "Usage: $0 {all|install|configure-memory|restart-openclaw|check}"
+    echo "Usage: $0 {all|install|configure-openclaw|configure-memory|restart-openclaw|check}"
     exit 1
     ;;
 esac

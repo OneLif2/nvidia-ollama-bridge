@@ -1,4 +1,9 @@
 node_modules/
 *.log
 .env
+__pycache__/
+
+# Generated personal files — created locally by the installer or an agent.
+# Never commit these; they may contain your API key reference.
+gemma-4-31b-it.py
 gemma-4-31b-it.mjs
