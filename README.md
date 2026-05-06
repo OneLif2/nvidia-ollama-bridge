@@ -92,6 +92,29 @@ bash scripts/openclaw-fast-setup.sh check
 
 ## Ways to call this model
 
+### Quick Call Commands
+
+Use these commands after the bridge is running. If you installed the user
+service with `scripts/openclaw-fast-setup.sh install`, the bridge should already
+be listening on `127.0.0.1:11545`.
+
+```bash
+# Interactive Ollama chat
+OLLAMA_HOST=http://127.0.0.1:11545 ollama run gemma4:latest
+
+# One-shot Ollama prompt
+OLLAMA_HOST=http://127.0.0.1:11545 ollama run gemma4:latest "say hello in one sentence"
+
+# List models exposed by the bridge
+OLLAMA_HOST=http://127.0.0.1:11545 ollama list
+
+# Direct bridge chat without Ollama
+node nvidia-bridge.mjs --chat
+```
+
+The bridge advertises `gemma4:latest` as the Ollama-friendly alias for
+NVIDIA's `google/gemma-4-31b-it` model.
+
 | Method | Command | Speed | Features |
 |--------|---------|-------|----------|
 | **Direct `--chat`** | `node nvidia-bridge.mjs --chat` | Fastest | Raw terminal chat |
