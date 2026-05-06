@@ -108,6 +108,9 @@ OLLAMA_HOST=http://127.0.0.1:11545 ollama run gemma4:latest "say hello in one se
 # List models exposed by the bridge
 OLLAMA_HOST=http://127.0.0.1:11545 ollama list
 
+# Show model metadata through Ollama compatibility
+OLLAMA_HOST=http://127.0.0.1:11545 ollama show gemma4:latest
+
 # Direct bridge chat without Ollama
 node nvidia-bridge.mjs --chat
 ```
@@ -251,6 +254,9 @@ for chunk in stream:
 | GET | `/v1/models` | OpenAI-format model list |
 | POST | `/v1/chat/completions` | OpenAI chat |
 | GET | `/api/tags` | Ollama-format model list |
+| GET | `/api/ps` | Ollama-format running model list |
+| POST | `/api/show` | Ollama model metadata |
+| POST | `/api/pull` | Ollama pull compatibility for remote model aliases |
 | POST | `/api/chat` | Ollama chat (NDJSON stream) |
 | POST | `/api/generate` | Ollama generate |
 
@@ -307,5 +313,9 @@ nvidia-ollama-bridge/
 
 **Ollama CLI not connecting** — Always set `OLLAMA_HOST=http://127.0.0.1:11545`
 before running `ollama run`.
+
+**Ollama tries to pull the model** — Recent Ollama CLI versions may call
+`/api/pull` before chat. The bridge answers that compatibility endpoint; make
+sure your service is running the latest `nvidia-bridge.mjs`.
 
 **Bridge port in use** — `NVIDIA_BRIDGE_PORT=11546 node nvidia-bridge.mjs`

@@ -323,6 +323,20 @@ const EXPOSED_ALIASES = [
   "google/gemma-4-31b-it",
 ];
 
+const MODEL_DIGEST =
+  "sha256:67656d6d61342d3331622d6974000000000000000000000000000000000000";
+
+function ollamaModelDetails() {
+  return {
+    parent_model: "",
+    format: "nvidia-nim",
+    family: "gemma",
+    families: ["gemma"],
+    parameter_size: "31B",
+    quantization_level: "API",
+  };
+}
+
 function ollamaTagsList() {
   return {
     models: EXPOSED_ALIASES.map((name) => ({
@@ -330,10 +344,33 @@ function ollamaTagsList() {
       model: name,
       modified_at: nowISO(),
       size: 0,
-      digest: "nvidia-nim",
-      details: { family: "gemma", parameter_size: "31B", quantization_level: "API" },
+      digest: MODEL_DIGEST,
+      details: ollamaModelDetails(),
     })),
   };
+}
+
+function ollamaShowModel(name) {
+  return {
+    license: "NVIDIA NIM API model, accessed through local bridge.",
+    modelfile: `FROM ${name || "gemma4:latest"}`,
+    parameters: "temperature 1.0\ntop_p 0.95",
+    template: "{{ .Prompt }}",
+    details: ollamaModelDetails(),
+    model_info: {
+      "general.architecture": "gemma",
+      "general.parameter_count": 31000000000,
+    },
+    modified_at: nowISO(),
+  };
+}
+
+function handleOllamaPull(res, body) {
+  const name = body.name || body.model || "gemma4:latest";
+  res.writeHead(200, { "Content-Type": "application/x-ndjson" });
+  res.write(JSON.stringify({ status: "pulling manifest" }) + "\n");
+  res.write(JSON.stringify({ status: "success", digest: MODEL_DIGEST, model: name }) + "\n");
+  res.end();
 }
 
 function openaiModelsList() {
@@ -408,6 +445,16 @@ async function handleRequest(req, res) {
 
     if (method === "GET" && url === "/v1/models") {
       return jsonReply(res, 200, openaiModelsList());
+    }
+
+    if (method === "POST" && url === "/api/show") {
+      const body = await readBody(req);
+      return jsonReply(res, 200, ollamaShowModel(body.name || body.model));
+    }
+
+    if (method === "POST" && url === "/api/pull") {
+      const body = await readBody(req);
+      return handleOllamaPull(res, body);
     }
 
     // ── Chat endpoints ───────────────────────────────────────────────────────

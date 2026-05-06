@@ -103,6 +103,15 @@ OLLAMA_HOST=http://127.0.0.1:11545 ollama run gemma4:latest
 > Ollama defaults to port 11434. `OLLAMA_HOST` redirects it to the bridge on
 > port 11545. Without it, Ollama tries its own local server and ignores the bridge.
 
+Recent Ollama CLI versions may call metadata/pull endpoints before chatting.
+The bridge supports `/api/show` and `/api/pull`, so this should work without a
+local model download:
+
+```bash
+OLLAMA_HOST=http://127.0.0.1:11545 ollama show gemma4:latest
+OLLAMA_HOST=http://127.0.0.1:11545 ollama run gemma4:latest "say ok"
+```
+
 ### Step 5 — Run as a background service (optional)
 
 ```bash

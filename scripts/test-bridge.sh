@@ -57,9 +57,30 @@ else
   fail "/v1/models no data field"
 fi
 
-# ── Test 4: streaming chat (OpenAI format) ──────────────────────────────────
+# ── Test 4: Ollama compatibility metadata ───────────────────────────────────
 echo
-echo "[4] OpenAI streaming chat"
+echo "[4] Ollama compatibility metadata"
+resp=$(curl -sf -X POST "${BASE}/api/show" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"gemma4:latest"}' 2>&1) || { fail "/api/show request failed"; }
+if echo "$resp" | grep -q '"details"'; then
+  ok "/api/show returned model metadata"
+else
+  fail "/api/show no details field"
+fi
+
+resp=$(curl -sf -X POST "${BASE}/api/pull" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"gemma4:latest"}' 2>&1) || { fail "/api/pull request failed"; }
+if echo "$resp" | grep -q '"success"'; then
+  ok "/api/pull returned compatibility success"
+else
+  fail "/api/pull no success status"
+fi
+
+# ── Test 5: streaming chat (OpenAI format) ──────────────────────────────────
+echo
+echo "[5] OpenAI streaming chat"
 resp=$(curl -sf -X POST "${BASE}/v1/chat/completions" \
   -H "Content-Type: application/json" \
   -d '{"model":"gemma4:latest","messages":[{"role":"user","content":"Reply with just the word HELLO"}],"stream":true,"max_tokens":20}' \
@@ -75,9 +96,9 @@ else
   warn "unexpected streaming response: ${resp:0:200}"
 fi
 
-# ── Test 5: non-streaming chat (OpenAI format) ──────────────────────────────
+# ── Test 6: non-streaming chat (OpenAI format) ──────────────────────────────
 echo
-echo "[5] OpenAI non-streaming chat"
+echo "[6] OpenAI non-streaming chat"
 resp=$(curl -sf -X POST "${BASE}/v1/chat/completions" \
   -H "Content-Type: application/json" \
   -d '{"model":"gemma4:latest","messages":[{"role":"user","content":"Reply with just the word HELLO"}],"stream":false,"max_tokens":20}' \
@@ -91,9 +112,9 @@ else
   warn "unexpected response: ${resp:0:200}"
 fi
 
-# ── Test 6: Ollama /api/chat ─────────────────────────────────────────────────
+# ── Test 7: Ollama /api/chat ─────────────────────────────────────────────────
 echo
-echo "[6] Ollama /api/chat (streaming)"
+echo "[7] Ollama /api/chat (streaming)"
 resp=$(curl -sf -X POST "${BASE}/api/chat" \
   -H "Content-Type: application/json" \
   -d '{"model":"gemma4:latest","messages":[{"role":"user","content":"Say HELLO"}],"stream":true}' \
@@ -107,9 +128,9 @@ else
   warn "unexpected /api/chat response: ${resp:0:200}"
 fi
 
-# ── Test 7: Ollama /api/generate ────────────────────────────────────────────
+# ── Test 8: Ollama /api/generate ────────────────────────────────────────────
 echo
-echo "[7] Ollama /api/generate"
+echo "[8] Ollama /api/generate"
 resp=$(curl -sf -X POST "${BASE}/api/generate" \
   -H "Content-Type: application/json" \
   -d '{"model":"gemma4:latest","prompt":"Say HELLO","stream":false}' \
@@ -123,9 +144,9 @@ else
   warn "unexpected /api/generate response: ${resp:0:200}"
 fi
 
-# ── Test 8: multi-turn conversation ─────────────────────────────────────────
+# ── Test 9: multi-turn conversation ─────────────────────────────────────────
 echo
-echo "[8] Multi-turn conversation"
+echo "[9] Multi-turn conversation"
 resp=$(curl -sf -X POST "${BASE}/v1/chat/completions" \
   -H "Content-Type: application/json" \
   -d '{
