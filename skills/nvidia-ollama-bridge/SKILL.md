@@ -112,13 +112,6 @@ OLLAMA_HOST=http://127.0.0.1:11545 ollama show gemma4:latest
 OLLAMA_HOST=http://127.0.0.1:11545 ollama run gemma4:latest "say ok"
 ```
 
-Port `11545` is the native NVIDIA bridge port. If `codex-ollama-bridge` is also
-running, its unified port `11540` can route Gemma requests here:
-
-```bash
-OLLAMA_HOST=http://127.0.0.1:11540 ollama run gemma4:latest "say ok"
-```
-
 ### Step 5 — Run as a background service (optional)
 
 ```bash

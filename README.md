@@ -118,17 +118,6 @@ node nvidia-bridge.mjs --chat
 The bridge advertises `gemma4:latest` as the Ollama-friendly alias for
 NVIDIA's `google/gemma-4-31b-it` model.
 
-### Native port vs unified port
-
-This repository's bridge listens on `11545`. If you also run
-[`codex-ollama-bridge`](https://github.com/OneLif2/codex-ollama-bridge), you can
-use its unified Ollama entry point on `11540`; it forwards Gemma requests to
-this NVIDIA bridge:
-
-```bash
-OLLAMA_HOST=http://127.0.0.1:11540 ollama run gemma4:latest
-```
-
 | Method | Command | Speed | Features |
 |--------|---------|-------|----------|
 | **Direct `--chat`** | `node nvidia-bridge.mjs --chat` | Fastest | Raw terminal chat |
